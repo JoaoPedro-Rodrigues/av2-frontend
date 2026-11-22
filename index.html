@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lista de Tarefas</title>
+<style>
+  :root { --bg:#eef2f6; --card:#fff; --ink:#18222f; --mute:#64748b; --line:#d9e1ea; --accent:#0b6e6e; --danger:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.9rem; margin: 0 0 4px; }
+  .sub { color: var(--mute); margin: 0 0 24px; }
+  form, li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  form { padding: 16px; display: grid; gap: 10px; margin-bottom: 20px; }
+  input, textarea { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; width: 100%; }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 9px 14px; background: var(--accent); color: #fff; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button.del { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+  ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  li { padding: 14px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: start; }
+  li input[type=checkbox] { width: 20px; height: 20px; margin-top: 3px; }
+  li.done .t { text-decoration: line-through; color: var(--mute); }
+  .t { font-weight: 600; word-break: break-word; }
+  .d { color: var(--mute); margin: 2px 0 0; word-break: break-word; }
+  .acts { grid-column: 2; display: flex; gap: 8px; margin-top: 8px; }
+  .msg { padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; background: #fde8e6; color: var(--danger); }
+  .vazio { text-align: center; color: var(--mute); padding: 28px; }
+  .edit { grid-column: 2; display: grid; gap: 8px; }
+  @media (prefers-reduced-motion: no-preference) { button { transition: filter .15s; } button:hover { filter: brightness(.92); } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lista de Tarefas</h1>
+  <p class="sub">Cadastre, edite, conclua e exclua tarefas. Tudo fica salvo no Supabase.</p>
+  <div id="msg" class="msg" hidden></div>
+
+  <form id="form">
+    <input id="titulo" placeholder="Título da tarefa" maxlength="200" required>
+    <textarea id="descricao" rows="2" placeholder="Descrição (opcional)"></textarea>
+    <button type="submit">Adicionar tarefa</button>
+  </form>
+
+  <ul id="lista"></ul>
+</main>
+
+<script>
+
+const API_URL = 'https://av2-backend-ccqlfyxvs-jaraujorodriguespereira3-5051s-projects.vercel.app/api/tarefas';
+
+const $ = (id) => document.getElementById(id);
+let tarefas = [];
+let editandoId = null;
+
+function erro(texto) { const m = $('msg'); m.textContent = texto; m.hidden = !texto; }
+
+async function api(caminho, opcoes = {}) {
+  let res;
+  try {
+    res = await fetch(API_URL + caminho, { headers: { 'Content-Type': 'application/json' }, ...opcoes });
+  } catch {
+    throw new Error('Não foi possível conectar ao servidor. Confira API_URL e o CORS do backend.');
+  }
+  if (res.status === 204) return null;
+  const dados = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(dados.error || 'Erro inesperado');
+  return dados;
+}
+
+async function carregar() {
+  try { tarefas = await api('/api/tarefas'); erro(''); } catch (e) { erro(e.message); }
+  desenhar();
+}
+
+function desenhar() {
+  const ul = $('lista');
+  ul.replaceChildren();
+  if (!tarefas.length) {
+    const v = document.createElement('li');
+    v.className = 'vazio'; v.style.display = 'block';
+    v.textContent = 'Nenhuma tarefa ainda. Adicione a primeira acima.';
+    ul.append(v); return;
+  }
+  for (const t of tarefas) ul.append(t.id === editandoId ? itemEdicao(t) : item(t));
+}
+
+function el(tag, props = {}, ...filhos) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...filhos); return e;
+}
+
+function item(t) {
+  const li = el('li'); if (t.concluida) li.className = 'done';
+  const chk = el('input', { type: 'checkbox', checked: t.concluida, ariaLabel: 'Concluir tarefa' });
+  chk.onchange = () => atualizar(t.id, { concluida: chk.checked });
+  const corpo = el('div', {}, el('div', { className: 't', textContent: t.titulo }));
+  if (t.descricao) corpo.append(el('p', { className: 'd', textContent: t.descricao }));
+  const editar = el('button', { className: 'ghost', textContent: 'Editar' });
+  editar.onclick = () => { editandoId = t.id; desenhar(); };
+  const excluir = el('button', { className: 'del', textContent: 'Excluir' });
+  excluir.onclick = () => remover(t.id);
+  li.append(chk, corpo, el('div', { className: 'acts' }, editar, excluir));
+  return li;
+}
+
+function itemEdicao(t) {
+  const li = el('li'); li.style.display = 'block';
+  const ti = el('input', { value: t.titulo, maxLength: 200 });
+  const de = el('textarea', { rows: 2, value: t.descricao || '' });
+  const salvar = el('button', { textContent: 'Salvar alterações' });
+  salvar.onclick = () => atualizar(t.id, { titulo: ti.value, descricao: de.value });
+  const cancelar = el('button', { className: 'ghost', textContent: 'Cancelar' });
+  cancelar.onclick = () => { editandoId = null; desenhar(); };
+  li.append(el('div', { className: 'edit' }, ti, de, el('div', { className: 'acts', style: 'margin:0' }, salvar, cancelar)));
+  return li;
+}
+
+async function atualizar(id, campos) {
+  try {
+    const nova = await api('/api/tarefas/' + id, { method: 'PUT', body: JSON.stringify(campos) });
+    tarefas = tarefas.map((t) => (t.id === id ? nova : t));
+    editandoId = null; erro('');
+  } catch (e) { erro(e.message); }
+  desenhar();
+}
+
+async function remover(id) {
+  if (!confirm('Excluir esta tarefa?')) return;
+  try { await api('/api/tarefas/' + id, { method: 'DELETE' }); tarefas = tarefas.filter((t) => t.id !== id); erro(''); }
+  catch (e) { erro(e.message); }
+  desenhar();
+}
+
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const nova = await api('/api/tarefas', { method: 'POST', body: JSON.stringify({ titulo: $('titulo').value, descricao: $('descricao').value }) });
+    tarefas.unshift(nova); e.target.reset(); erro('');
+  } catch (err) { erro(err.message); }
+  desenhar();
+});
+
+carregar();
+</script>
+</body>
+</html>
